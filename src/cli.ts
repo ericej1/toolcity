@@ -19,6 +19,7 @@ import {
   saveManifest,
 } from "./builder";
 import { slug } from "./util";
+import { handleApiRequest, type KVStore } from "./api-core";
 
 async function build(): Promise<void> {
   const stats = await buildCity();
@@ -98,11 +99,11 @@ const MIME: Record<string, string> = {
 };
 
 // --- shared (server-side) guestbook + hit-counter store -------------------
-// These persist across rebuilds and accumulate across ALL visitors, unlike the
-// per-browser localStorage fallback the client uses on static hosting.
-const VISITS_FILE = join(OUT_DIR, "..", "social", "visits.json");
-const VGB_FILE = join(OUT_DIR, "..", "social", "visitor-guestbook.json");
-const VALID_ID = /^[A-Za-z]+\/\d{4}$/; // District/NNNN
+// Local dev mirrors the production Cloudflare Worker exactly: same api-core
+// logic, just a JSON-file-backed KV instead of Workers KV. These persist across
+// rebuilds and accumulate across ALL visitors, unlike the per-browser
+// localStorage fallback the client uses on a static (Pages) host.
+const KV_FILE = join(OUT_DIR, "..", "social", "kv.json");
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try {
@@ -115,6 +116,22 @@ async function writeJson(file: string, data: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(data, null, 2), "utf8");
 }
+
+/** A KVStore backed by a single JSON file (good enough for one local user). */
+function fileKV(): KVStore {
+  return {
+    async getJson<T>(key: string, fallback: T): Promise<T> {
+      const all = await readJson<Record<string, unknown>>(KV_FILE, {});
+      return (Object.prototype.hasOwnProperty.call(all, key) ? all[key] : fallback) as T;
+    },
+    async putJson(key: string, value: unknown): Promise<void> {
+      const all = await readJson<Record<string, unknown>>(KV_FILE, {});
+      all[key] = value;
+      await writeJson(KV_FILE, all);
+    },
+  };
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((res) => {
     let b = "";
@@ -128,43 +145,19 @@ const sendJson = (res: ServerResponse, code: number, obj: unknown) => {
 };
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  let post: any = {};
+  let body: unknown = {};
   if (req.method === "POST") {
     try {
-      post = JSON.parse((await readBody(req)) || "{}");
+      body = JSON.parse((await readBody(req)) || "{}");
     } catch {
       return sendJson(res, 400, { error: "invalid JSON body" });
     }
   }
-
-  if (url.pathname === "/api/hit" && req.method === "POST") {
-    const id = String(post.id ?? "");
-    if (!VALID_ID.test(id)) return sendJson(res, 400, { error: "bad id" });
-    const visits = await readJson<Record<string, number>>(VISITS_FILE, {});
-    visits[id] = (visits[id] ?? 0) + 1;
-    await writeJson(VISITS_FILE, visits);
-    return sendJson(res, 200, { count: visits[id] });
-  }
-
-  if (url.pathname === "/api/guestbook") {
-    const store = await readJson<Record<string, Array<{ name: string; msg: string }>>>(VGB_FILE, {});
-    if (req.method === "GET") {
-      const id = url.searchParams.get("id") ?? "";
-      return sendJson(res, 200, { entries: store[id] ?? [] });
-    }
-    if (req.method === "POST") {
-      const id = String(post.id ?? "");
-      if (!VALID_ID.test(id)) return sendJson(res, 400, { error: "bad id" });
-      const name = String(post.name ?? "anonymous coward").slice(0, 40);
-      const msg = String(post.msg ?? "").trim().slice(0, 200);
-      if (!msg) return sendJson(res, 400, { error: "empty message" });
-      const entry = { name, msg };
-      store[id] = [...(store[id] ?? []), entry].slice(-200); // cap per page
-      await writeJson(VGB_FILE, store);
-      return sendJson(res, 200, { ok: true, entry });
-    }
-  }
-  sendJson(res, 404, { error: "no such endpoint" });
+  const result = await handleApiRequest(
+    { method: req.method ?? "GET", path: url.pathname, query: url.searchParams, body },
+    fileKV(),
+  );
+  sendJson(res, result.status, result.body);
 }
 
 function serve(port = 8000): void {

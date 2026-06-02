@@ -1,4 +1,5 @@
 import type { Manifest } from "../schema";
+import { API_BASE } from "../config";
 
 /**
  * Public-domain melodies encoded as space-separated "NOTE:beats" tokens.
@@ -35,6 +36,7 @@ export function clientScript(m: Manifest, agentId: string): string {
     midi: m.nowPlaying,
     start: m.visitorCountStart,
     melody: MELODIES[m.nowPlaying] ?? "",
+    api: API_BASE, // "" = same-origin; a Worker URL when built for static hosting
   });
 
   return (
@@ -43,7 +45,7 @@ export function clientScript(m: Manifest, agentId: string): string {
     `\n/* ---------- hit counter (shared via server; localStorage fallback) ---------- */\n` +
     `function setHits(total){var el=document.getElementById('hitcount'); if(el) el.textContent=String(total).padStart(7,'0');}\n` +
     `function localHits(){try{var hk='tc:hits:'+CFG.id; var n=parseInt(localStorage.getItem(hk)||'0',10)+1; localStorage.setItem(hk,String(n)); return CFG.start+n;}catch(e){return CFG.start;}}\n` +
-    `fetch('/api/hit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:CFG.id})})\n` +
+    `fetch(CFG.api+'/api/hit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:CFG.id})})\n` +
     `  .then(function(r){if(!r.ok)throw 0; return r.json();})\n` +
     `  .then(function(d){setHits(CFG.start+d.count);})\n` +
     `  .catch(function(){setHits(localHits());});\n` +
@@ -52,25 +54,24 @@ export function clientScript(m: Manifest, agentId: string): string {
     `  var key='tc:gb:'+CFG.id;\n` +
     `  var box=document.getElementById('gb-entries');\n` +
     `  var form=document.getElementById('gb-form');\n` +
-    `  var usingServer=false;\n` +
     `  function escape(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}\n` +
     `  function add(name,msg){if(!box)return; var div=document.createElement('div'); div.className='gb-entry'; div.innerHTML='<span class=\\'gb-name\\'>'+escape(name)+'</span>: '+escape(msg); box.appendChild(div);}\n` +
     `  function localList(){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch(e){return[]}}\n` +
-    `  fetch('/api/guestbook?id='+encodeURIComponent(CFG.id))\n` +
+    `  function saveLocal(nm,ms){var l=localList(); l.push({name:nm,msg:ms}); try{localStorage.setItem(key,JSON.stringify(l));}catch(e){}}\n` +
+    `  fetch(CFG.api+'/api/guestbook?id='+encodeURIComponent(CFG.id))\n` +
     `    .then(function(r){if(!r.ok)throw 0; return r.json();})\n` +
-    `    .then(function(d){usingServer=true; (d.entries||[]).forEach(function(e){add(e.name,e.msg);});})\n` +
+    `    .then(function(d){(d.entries||[]).forEach(function(e){add(e.name,e.msg);});})\n` +
     `    .catch(function(){var l=localList(); for(var i=0;i<l.length;i++) add(l[i].name,l[i].msg);});\n` +
     `  if(form){form.addEventListener('submit',function(){\n` +
     `    var nm=(document.getElementById('gb-name').value||'anonymous coward').slice(0,40);\n` +
     `    var ms=(document.getElementById('gb-msg').value||'').slice(0,200);\n` +
-    `    if(!ms) return false;\n` +
+    `    if(!ms.replace(/\\s/g,'')) return false;\n` +
     `    document.getElementById('gb-name').value=''; document.getElementById('gb-msg').value='';\n` +
-    `    if(usingServer){\n` +
-    `      fetch('/api/guestbook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:CFG.id,name:nm,msg:ms})})\n` +
-    `        .then(function(r){return r.json();}).then(function(d){add((d&&d.entry?d.entry.name:nm),(d&&d.entry?d.entry.msg:ms));}).catch(function(){add(nm,ms);});\n` +
-    `    } else {\n` +
-    `      var l=localList(); l.push({name:nm,msg:ms}); try{localStorage.setItem(key,JSON.stringify(l));}catch(e){} add(nm,ms);\n` +
-    `    }\n` +
+    `    /* Always try the server; fall back to localStorage only if it's unreachable. */\n` +
+    `    fetch(CFG.api+'/api/guestbook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:CFG.id,name:nm,msg:ms})})\n` +
+    `      .then(function(r){if(!r.ok)throw 0; return r.json();})\n` +
+    `      .then(function(d){add((d&&d.entry?d.entry.name:nm),(d&&d.entry?d.entry.msg:ms));})\n` +
+    `      .catch(function(){saveLocal(nm,ms); add(nm,ms);});\n` +
     `    return false;\n` +
     `  });}\n` +
     `})();\n` +

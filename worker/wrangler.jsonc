@@ -1,0 +1,10 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "toolcity-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-02",
+  // `id` is a placeholder good enough for local `wrangler dev` (local KV is keyed
+  // by the binding name). Before deploying, run `npx wrangler kv namespace create KV`
+  // and paste the printed id here.
+  "kv_namespaces": [{ "binding": "KV", "id": "local-dev-placeholder" }]
+}

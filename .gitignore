@@ -3,6 +3,10 @@ toolcity/
 .env
 *.log
 
+# Cloudflare Worker local state (Miniflare KV, etc.)
+.wrangler/
+
 # Runtime visitor data written by `npm run serve` (per-deployment, not source).
+social/kv.json
 social/visits.json
 social/visitor-guestbook.json
