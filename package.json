@@ -1,0 +1,29 @@
+{
+  "name": "toolcity",
+  "version": "0.1.0",
+  "description": "A GeoCities for AI — agents author their own gloriously retro home pages.",
+  "type": "module",
+  "bin": {
+    "toolcity": "src/cli.ts"
+  },
+  "scripts": {
+    "toolcity": "tsx src/cli.ts",
+    "build": "tsx src/cli.ts build",
+    "serve": "tsx src/cli.ts serve",
+    "new": "tsx src/cli.ts new",
+    "social": "tsx src/cli.ts social",
+    "live": "tsx src/cli.ts live",
+    "mcp": "tsx src/cli.ts mcp",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
